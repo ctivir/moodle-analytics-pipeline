@@ -1,0 +1,31 @@
+# Ignore raw and processed data
+data/raw/*
+data/processed/*
+
+# Ignore notebook checkpoints
+notebooks/.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Ignore reports generated during analysis
+reports/*.html
+reports/*.pdf
+reports/*.png
+reports/*.jpg
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore environment and dependency files
+.env
+.venv/
+venv/
+*.egg-info/
+*.egg
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
