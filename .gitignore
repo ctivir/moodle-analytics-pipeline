@@ -7,10 +7,10 @@ notebooks/.ipynb_checkpoints/
 *.ipynb_checkpoints
 
 # Ignore reports generated during analysis
-reports/*.html
-reports/*.pdf
-reports/*.png
-reports/*.jpg
+report/*.html
+report/*.pdf
+report/*.png
+report/*.jpg
 
 # Ignore Python cache and compiled files
 __pycache__/
