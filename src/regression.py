@@ -2,33 +2,44 @@ import pandas as pd
 import numpy as np
 import shap
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score, KFold
 from sklearn.linear_model import LinearRegression, Ridge, Lasso
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 from pathlib import Path
 from xgboost import XGBRegressor
+import yaml
 
-def run_regression_models(df, reports_dir="../report"):
+
+def run_regression_models(df, reports_dir=None, config_path="config.yaml"):
     """
     Run regression models to predict 'finalgrade' from Moodle features.
     Exports evaluation metrics, SHAP explainability results, and
     per-student top SHAP features for LLM feedback.
     """
-    
-    # Ensure reports_dir is a Path object
-    reports_dir = Path(reports_dir)
+
+    # Load config
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Use config values
+    test_size = config['model']['test_size']
+    random_state = config['model']['random_state']
+    cv_folds = config['model']['cv_folds']
+    rf_params = config['model']['random_forest']
+
+    reports_dir = reports_dir or Path(config['output']['reports'])
 
     # 1. Prepare data
     X = df.drop(columns=["finalgrade", "userid", "courseid"])
     y = df["finalgrade"]
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=test_size, random_state=random_state
     )
 
-    # 2. Baseline and ensemble models
+    # 2. Baseline and ensemble models with cross-validation
     models = {
         "Linear Regression": LinearRegression(),
         "Ridge Regression": Ridge(),
@@ -40,20 +51,28 @@ def run_regression_models(df, reports_dir="../report"):
     }
 
     results = {}
+    cv = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+
     for name, model in models.items():
+        # Cross-validation scores
+        cv_mse = cross_val_score(model, X, y, cv=cv, scoring='neg_mean_squared_error')
+        cv_r2 = cross_val_score(model, X, y, cv=cv, scoring='r2')
+
+        # Also fit on train/test for consistency with SHAP
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
+
         results[name] = {
-            "MSE": mean_squared_error(y_test, y_pred),
-            "R2": r2_score(y_test, y_pred)
+            "CV_MSE_mean": -cv_mse.mean(),
+            "CV_MSE_std": cv_mse.std(),
+            "CV_R2_mean": cv_r2.mean(),
+            "CV_R2_std": cv_r2.std(),
+            "Test_MSE": mean_squared_error(y_test, y_pred),
+            "Test_R2": r2_score(y_test, y_pred)
         }
 
     # 3. Hyperparameter optimization (Random Forest)
-    param_grid_rf = {
-        "n_estimators": [100, 200, 300],
-        "max_depth": [None, 10, 20],
-        "min_samples_split": [2, 5, 10]
-    }
+    param_grid_rf = rf_params
     grid_rf = GridSearchCV(
         RandomForestRegressor(random_state=42),
         param_grid_rf,
@@ -65,10 +84,18 @@ def run_regression_models(df, reports_dir="../report"):
     best_rf = grid_rf.best_estimator_
     print("Best RF parameters:", grid_rf.best_params_)
 
+    # Cross-validation for optimized RF
+    cv_mse_rf = cross_val_score(best_rf, X, y, cv=cv, scoring='neg_mean_squared_error')
+    cv_r2_rf = cross_val_score(best_rf, X, y, cv=cv, scoring='r2')
+
     y_pred_rf = best_rf.predict(X_test)
     results["Random Forest (Optimized)"] = {
-        "MSE": mean_squared_error(y_test, y_pred_rf),
-        "R2": r2_score(y_test, y_pred_rf)
+        "CV_MSE_mean": -cv_mse_rf.mean(),
+        "CV_MSE_std": cv_mse_rf.std(),
+        "CV_R2_mean": cv_r2_rf.mean(),
+        "CV_R2_std": cv_r2_rf.std(),
+        "Test_MSE": mean_squared_error(y_test, y_pred_rf),
+        "Test_R2": r2_score(y_test, y_pred_rf)
     }
 
     # 4. Export metrics
